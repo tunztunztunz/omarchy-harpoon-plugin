@@ -2,7 +2,7 @@
 -- Exercise the real backend with in-memory files and a mocked compositor.
 local json = dofile("hypr/json.lua")
 local state, pending, writes = "", nil, 0
-local windows, handlers = {}, {}
+local windows, handlers, removed = {}, {}, {}
 local function seed(entries)
   local slots = {}
   for i = 1, 10 do
@@ -31,6 +31,7 @@ local env = setmetatable({
   os = setmetatable({
     execute = function() end,
     rename = function() state = assert(pending); writes = writes + 1 end,
+    remove = function(path) removed[path:match("([^/]+)%.png$")] = true end,
   }, {__index = os}),
   dofile = function() return json end,
   hl = {
@@ -71,4 +72,19 @@ seed({[3] = {"live"}})
 local writes_before_reload = writes
 assert(loadfile("hypr/harpoon-logic.lua", "t", env))()
 assert(writes == writes_before_reload, "Reload with only live bookmarks must not rewrite state")
+
+seed({[2] = {"live"}, [4] = {"closing"}})
+removed = {}
+env.Harpoon.togglePreview(2)
+assert(slots()[2].noPreview == true and removed.live, "Going private deletes the cached capture")
+assert(not removed.closing, "Keep captures of bookmarks that still allow previews")
+env.Harpoon.togglePreview(2)
+assert(slots()[2].noPreview == false, "Toggle previews back on")
+removed = {}
+env.Harpoon.delete(4)
+assert(removed.closing and not removed.live, "Deleting a bookmark deletes its cached capture")
+state = json.encode({version = 1, slots = {42, {slot = 2, name = "No address"}, {slot = 3, address = "live"}}})
+env.Harpoon.togglePreview(1)
+env.Harpoon.togglePreview(3)
+assert(slots()[1] == false and slots()[2] == false and slots()[3].noPreview, "Malformed slots read as empty")
 print("closed-window cleanup: PASS")

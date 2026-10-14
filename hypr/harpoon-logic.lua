@@ -14,7 +14,7 @@
 local PLUGIN_DIR = os.getenv("HOME") .. "/.config/omarchy/plugins/harpoon"
 local STATE_DIR = os.getenv("HOME") .. "/.local/state/omarchy/harpoon"
 local STATE_FILE = STATE_DIR .. "/list.json"
-local PREVIEW_DIR = STATE_DIR .. "/previews" -- grim fallback captures, written by Harpoon.qml
+local PREVIEW_DIR = STATE_DIR .. "/previews" -- grim fallback captures, written by HarpoonPreview.qml
 
 local SLOT_COUNT = 10
 
@@ -29,7 +29,17 @@ local function shell_quote(s)
   return "'" .. tostring(s):gsub("'", "'\\''") .. "'"
 end
 
-os.execute("mkdir -p " .. shell_quote(PREVIEW_DIR))
+-- Bookmarks hold window titles and previews hold window contents, so the
+-- state stays owner-only. Captures are only read right after they are taken,
+-- so none need to survive a config load.
+os.execute("umask 077; mkdir -p " .. shell_quote(PREVIEW_DIR)
+  .. "; chmod 700 " .. shell_quote(STATE_DIR) .. " " .. shell_quote(PREVIEW_DIR)
+  .. "; rm -f " .. shell_quote(PREVIEW_DIR) .. "/*.png*")
+
+-- Must match the path HarpoonPreview.qml captures to.
+local function preview_path(address)
+  return PREVIEW_DIR .. "/" .. address .. ".png"
+end
 
 -- The notification card draws an icon file as-is, so the mark (plain white
 -- in assets/) is copied with its stroke set to the theme's accent, the
@@ -216,8 +226,10 @@ local function read_state()
   if not ok or type(doc) ~= "table" or type(doc.slots) ~= "table" then
     return { version = 1, slots = empty_slots() }
   end
+  -- Every reader indexes e.address, so a hand-edited slot without one reads as empty.
   for i = 1, SLOT_COUNT do
-    if doc.slots[i] == nil then doc.slots[i] = false end
+    local e = doc.slots[i]
+    if type(e) ~= "table" or type(e.address) ~= "string" then doc.slots[i] = false end
   end
   return doc
 end
@@ -228,9 +240,17 @@ end
 local any_overlaid = has_overlaid(read_state())
 
 local function write_state(doc)
-  local out = {}
+  local out, keep = {}, {}
   for i = 1, SLOT_COUNT do
-    out[i] = (doc.slots[i] == false) and json.null or doc.slots[i]
+    local e = doc.slots[i]
+    out[i] = (e == false) and json.null or e
+    if e ~= false and not e.noPreview then keep[e.address] = true end
+  end
+  -- A bookmark that is gone or private loses its cached capture.
+  for _, e in ipairs(read_state().slots) do
+    if e ~= false and not keep[e.address] and e.address:match("^%w+$") then
+      os.remove(preview_path(e.address))
+    end
   end
   local tmp = STATE_FILE .. ".tmp"
   local f = io.open(tmp, "w")
@@ -736,6 +756,15 @@ function Harpoon.delete(n)
   return hl.dsp.no_op()
 end
 
+-- Stop (or resume) capturing slot n's window in the list's preview pane.
+function Harpoon.togglePreview(n)
+  local doc = read_state()
+  if doc.slots[n] == false then return hl.dsp.no_op() end
+  doc.slots[n].noPreview = not doc.slots[n].noPreview
+  write_state(doc)
+  return hl.dsp.no_op()
+end
+
 -- Swapping with an empty slot (`false`) is how "move to an empty slot" works.
 local function swap_slots(doc, a, b)
   doc.slots[a], doc.slots[b] = doc.slots[b], doc.slots[a]
@@ -783,7 +812,7 @@ function Harpoon.clear()
   end
   for i = 1, SLOT_COUNT do doc.slots[i] = false end
   write_state(doc)
-  os.execute("rm -f " .. shell_quote(PREVIEW_DIR) .. "/*.png")
+  os.execute("rm -f " .. shell_quote(PREVIEW_DIR) .. "/*.png*")
   say("cleared")
   return hl.dsp.no_op()
 end

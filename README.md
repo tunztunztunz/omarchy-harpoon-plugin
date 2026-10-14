@@ -64,8 +64,11 @@ borrowed window, or closing other windows as usual).
 The Lua integration expects the plugin at
 `~/.config/omarchy/plugins/harpoon`; use the default configuration location.
 Bookmarks, preview preferences, a generated icon, and fallback screenshots
-are stored under `~/.local/state/omarchy/harpoon/`. Previews capture window
-contents locally; select Off with `p` in the list to disable previews.
+are stored under `~/.local/state/omarchy/harpoon/`, readable only by you.
+Previews capture window contents locally; press `Shift+P` on a bookmark (a
+password manager, say) to never preview it, or select Off with `p` to disable
+previews entirely. Either deletes the cached screenshots, as does removing a
+bookmark or reloading Hyprland.
 
 ## Remove
 
@@ -112,6 +115,7 @@ window closes as usual.
 | `r` | Rename |
 | `d` / `Shift+D` | Delete / clear all — restores borrowed windows first; never closes them |
 | `p` | Preview: Live → Thumbnail → Off (remembered) |
+| `Shift+P` | Make the selected bookmark private: never previewed |
 | `Enter`/`Space`, click | Jump |
 | `q`/`Escape` | Close |
 

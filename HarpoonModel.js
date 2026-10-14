@@ -56,6 +56,7 @@ function displayRows(slots, resolveAppName) {
       cls: e.class || "",
       title: e.title || "",
       overlaid: !!e.overlaid,
+      noPreview: !!e.noPreview,
       live: true
     })
   }

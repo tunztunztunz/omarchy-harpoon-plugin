@@ -14,6 +14,7 @@ Rectangle {
   required property string cls
   required property string title
   required property bool overlaid
+  required property bool noPreview
   required property bool live
 
   property bool hasCursor: false
@@ -128,6 +129,19 @@ Rectangle {
         anchors.verticalCenter: parent.verticalCenter
         text: "On screen"
         color: row.selectedText
+        font.family: row.fontFamily
+        font.pixelSize: Style.font.caption
+        font.bold: true
+        font.letterSpacing: 1
+        font.capitalization: Font.AllUppercase
+      }
+
+      Text {
+        textFormat: Text.PlainText
+        visible: row.noPreview
+        anchors.verticalCenter: parent.verticalCenter
+        text: "Private"
+        color: row.dim
         font.family: row.fontFamily
         font.pixelSize: Style.font.caption
         font.bold: true

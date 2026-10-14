@@ -34,6 +34,7 @@ Item {
 
   property string statePath: Quickshell.env("HOME") + "/.local/state/omarchy/harpoon/list.json"
   property string settingsPath: Quickshell.env("HOME") + "/.local/state/omarchy/harpoon/settings.json"
+  property string previewDir: Quickshell.env("HOME") + "/.local/state/omarchy/harpoon/previews"
 
   // Same [menu] surface every other Omarchy picker uses -- theme-reactive.
   readonly property color background: Color.menu.background
@@ -56,6 +57,7 @@ Item {
     { key: "d", label: "Delete" },
     { key: "⇧D", label: "Clear" },
     { key: "p", label: "Preview: " + root.previewModeLabel },
+    { key: "⇧P", label: "Private" },
     { key: "q", label: "Quit" }
   ]
 
@@ -143,8 +145,16 @@ Item {
     var idx = root.previewModeOrder.indexOf(root.previewMode)
     root.previewMode = root.previewModeOrder[(idx + 1) % root.previewModeOrder.length]
     settingsFile.setText(JSON.stringify({ previewMode: root.previewMode }, null, 2) + "\n")
+    // Only live mode reads captured files.
+    if (root.previewMode !== "live") Util.execArgv(["bash", "-c", 'rm -f -- "$1"/*.png', "bash", root.previewDir])
     preview.reload()
     previewTimer.restart()
+  }
+
+  function togglePreviewSelected() {
+    var row = root.currentRow()
+    if (!row) return
+    runHarpoon("togglePreview(" + row.slot + ")")
   }
 
   function runHarpoon(luaCall) {
@@ -369,6 +379,8 @@ Item {
             event.accepted = true
           } else if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter || event.key === Qt.Key_Space) {
             root.activateSelected(); event.accepted = true
+          } else if (event.key === Qt.Key_P && (event.modifiers & Qt.ShiftModifier)) {
+            root.togglePreviewSelected(); event.accepted = true
           } else if (event.key === Qt.Key_P) {
             root.cyclePreviewMode(); event.accepted = true
           } else if (event.modifiers & Qt.ShiftModifier) {

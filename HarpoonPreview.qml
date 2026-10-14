@@ -15,6 +15,7 @@ import qs.Ui
 // window's on-screen area instead, which only shows anything if it's
 // actually visible. Thumbnail mode captures one frozen frame per bookmark
 // up front and keeps them, so changing the selection is a visibility toggle.
+// A private bookmark (noPreview) is never captured in any mode.
 Item {
   id: root
   property string mode: "live"        // "live" | "thumbnail" | "off"
@@ -43,7 +44,7 @@ Item {
 
   // Call whenever the selection, the mode or the rows change.
   function reload() {
-    var next = (mode === "live" && row) ? findToplevel(row.cls, row.title) : null
+    var next = (mode === "live" && row && !row.noPreview) ? findToplevel(row.cls, row.title) : null
     if (next !== matchedToplevel) {
       // Go through null so the live Loader's `active` binding cycles
       // false-then-true and creates a fresh ScreencopyView: rebinding
@@ -57,7 +58,7 @@ Item {
     var arr = []
     for (var i = 0; i < rows.count; i++) {
       var r = rows.get(i)
-      arr.push(findToplevel(r.cls, r.title))
+      arr.push(r.noPreview ? null : findToplevel(r.cls, r.title))
     }
     rowToplevels = arr
   }
@@ -70,19 +71,26 @@ Item {
       previewPlaceholder = ""
       return
     }
+    if (row.noPreview) {
+      previewPath = ""
+      previewPlaceholder = row.name + "\nPreview off for this bookmark"
+      return
+    }
     var geo = visibleGeometry(clientsJsonText, row.address)
     if (!geo) {
       previewPath = ""
       previewPlaceholder = row.name + "\nNo live preview"
       return
     }
-    var out = Quickshell.env("HOME") + "/.local/state/omarchy/harpoon/previews/" + row.slot + ".png"
+    // Keyed by address: harpoon-logic.lua's write_state deletes it by that name.
+    var out = Quickshell.env("HOME") + "/.local/state/omarchy/harpoon/previews/" + row.address + ".png"
     var tmp = out + ".tmp"
     grimProc.outPath = out
+    grimProc.address = row.address
     // Capture to a temp file and rename into place: the Image's async load
     // otherwise races the still-writing file and fails to decode it.
     grimProc.command = ["bash", "-lc",
-      "grim -g " + Util.shellQuote(geo.x + "," + geo.y + " " + geo.w + "x" + geo.h) + " " + Util.shellQuote(tmp) +
+      "umask 077 && grim -g " + Util.shellQuote(geo.x + "," + geo.y + " " + geo.w + "x" + geo.h) + " " + Util.shellQuote(tmp) +
       " && mv " + Util.shellQuote(tmp) + " " + Util.shellQuote(out)]
     grimProc.running = true
   }
@@ -108,7 +116,14 @@ Item {
   Process {
     id: grimProc
     property string outPath: ""
+    property string address: ""
     onExited: function(exitCode, exitStatus) {
+      // The bookmark can go private, or the mode change, mid-capture.
+      var wanted = root.mode === "live" && root.row && root.row.address === grimProc.address && !root.row.noPreview
+      if (!wanted) {
+        Util.execArgv(["rm", "-f", "--", grimProc.outPath])
+        return
+      }
       if (exitCode === 0) {
         root.previewPath = Util.fileUrl(grimProc.outPath) + "?t=" + Date.now()
         root.previewPlaceholder = ""
@@ -180,7 +195,7 @@ Item {
       verticalAlignment: Text.AlignVCenter
       horizontalAlignment: Text.AlignHCenter
       wrapMode: Text.WordWrap
-      text: (root.row ? root.row.name : "") + "\nNo thumbnail available"
+      text: (root.row ? root.row.name : "") + (root.row && root.row.noPreview ? "\nPreview off for this bookmark" : "\nNo thumbnail available")
       color: root.dim
       font.family: root.fontFamily
       font.pixelSize: Style.font.body
