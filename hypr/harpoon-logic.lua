@@ -307,6 +307,75 @@ local function usable_area(mon)
   }
 end
 
+-- Overlay preferences (entry.overlay) place a summoned window at an anchor
+-- of the usable area. Corner offsets are margins from the anchor's two
+-- edges; center offsets displace from the centered position.
+local ANCHORS = {
+  ["top-left"] = true, ["top-right"] = true,
+  ["bottom-left"] = true, ["bottom-right"] = true, center = true,
+}
+local ANCHOR_MARGIN = 20
+local OVERLAY_KEYS = { "width", "height", "offsetX", "offsetY" }
+
+local function finite(v)
+  return type(v) == "number" and v == v and v ~= math.huge and v ~= -math.huge
+end
+
+-- The saved preference, or nil when it's absent or malformed, which keeps
+-- the centered legacy summon.
+local function valid_overlay(o)
+  if type(o) ~= "table" or not ANCHORS[o.anchor] then return nil end
+  for _, k in ipairs(OVERLAY_KEYS) do
+    if not finite(o[k]) then return nil end
+  end
+  if o.width <= 0 or o.height <= 0 then return nil end
+  return o
+end
+
+local function anchor_position(area, anchor, w, h, ox, oy)
+  local x, y
+  if anchor == "center" then
+    x = area.x + math.floor((area.w - w) / 2) + ox
+    y = area.y + math.floor((area.h - h) / 2) + oy
+  else
+    x = anchor:match("left$") and area.x + ox or area.x + area.w - w - ox
+    y = anchor:match("^top") and area.y + oy or area.y + area.h - h - oy
+  end
+  return math.floor(x), math.floor(y)
+end
+
+-- Inverse of anchor_position: a window's geometry as preference values.
+local function describe_overlay(area, anchor, x, y, w, h)
+  local cx, cy = anchor_position(area, anchor, w, h, 0, 0)
+  local ox, oy = x - cx, y - cy
+  if anchor ~= "center" then
+    if not anchor:match("left$") then ox = -ox end
+    if not anchor:match("^top") then oy = -oy end
+  end
+  return { anchor = anchor, width = w, height = h, offsetX = ox, offsetY = oy }
+end
+
+local function clamp_into(area, x, y, w, h)
+  return math.max(area.x, math.min(x, area.x + area.w - w)),
+         math.max(area.y, math.min(y, area.y + area.h - h))
+end
+
+-- Fold the overlay's current floating geometry into entry.overlay. Values
+-- still matching what Harpoon last applied (entry.overlayApplied) keep their
+-- preference, so monitor-driven shrinking or clamping never overwrites it;
+-- only what the user moved or resized changes.
+local function capture_overlay(entry, w, area)
+  local pref = valid_overlay(entry.overlay)
+  local actual = describe_overlay(area, pref and pref.anchor or "center", w.at.x, w.at.y, w.size.x, w.size.y)
+  local applied = entry.overlayApplied
+  if pref and type(applied) == "table" then
+    for _, k in ipairs(OVERLAY_KEYS) do
+      if finite(applied[k]) and math.abs(actual[k] - applied[k]) <= 2 then actual[k] = pref[k] end
+    end
+  end
+  entry.overlay = actual
+end
+
 local function center_in(area, w, tw, th)
   hl.dispatch(hl.dsp.window.resize({ window = w, x = tw, y = th }))
   hl.dispatch(hl.dsp.window.move({
@@ -396,9 +465,22 @@ local function show_overlay(doc, n, entry, w, current_ws)
   end
   hl.dispatch(hl.dsp.window.move({ window = w, workspace = current_ws.id, follow = true }))
   local area = usable_area(current_ws.monitor or hl.get_active_monitor())
-  local tw = math.max(OVERLAY_MIN_W, math.min(entry.home.size.x, math.floor(area.w * OVERLAY_MAX_FRACTION)))
-  local th = math.max(OVERLAY_MIN_H, math.min(entry.home.size.y, math.floor(area.h * OVERLAY_MAX_FRACTION)))
-  center_in(area, w, tw, th)
+  local pref = valid_overlay(entry.overlay)
+  local anchor, tw, th, x, y
+  if pref then
+    anchor = pref.anchor
+    tw, th = math.floor(math.min(pref.width, area.w)), math.floor(math.min(pref.height, area.h))
+    x, y = anchor_position(area, anchor, tw, th, pref.offsetX, pref.offsetY)
+    x, y = clamp_into(area, x, y, tw, th)
+  else
+    anchor = "center"
+    tw = math.max(OVERLAY_MIN_W, math.min(entry.home.size.x, math.floor(area.w * OVERLAY_MAX_FRACTION)))
+    th = math.max(OVERLAY_MIN_H, math.min(entry.home.size.y, math.floor(area.h * OVERLAY_MAX_FRACTION)))
+    x, y = anchor_position(area, anchor, tw, th, 0, 0)
+  end
+  hl.dispatch(hl.dsp.window.resize({ window = w, x = tw, y = th }))
+  hl.dispatch(hl.dsp.window.move({ window = w, x = x, y = y }))
+  entry.overlayApplied = describe_overlay(area, anchor, x, y, tw, th)
   if not w.pinned then hl.dispatch(hl.dsp.window.pin({ window = w })) end
   hl.dispatch(hl.dsp.window.alter_zorder({ window = w, mode = "top" }))
   hl.dispatch(hl.dsp.focus({ window = w }))
@@ -503,9 +585,9 @@ function Harpoon.add(slot)
   return hl.dsp.no_op()
 end
 
--- Overlay slot n's window on the current workspace: floated, sized to fit,
--- centered, pinned and focused. Jumping to an already-overlaid slot
--- restores it instead.
+-- Overlay slot n's window on the current workspace: floated, sized and
+-- placed per its overlay preference (centered without one), pinned and
+-- focused. Jumping to an already-overlaid slot restores it instead.
 function Harpoon.jump(n)
   local doc = read_state()
   local entry = doc.slots[n]
@@ -567,6 +649,11 @@ function Harpoon.restore(n)
     say("gone", { app = entry.app or app_name(entry.class), slot = n })
     return hl.dsp.no_op()
   end
+
+  if w.floating and (w.fullscreen or 0) == 0 then
+    capture_overlay(entry, w, usable_area(w.monitor or hl.get_active_monitor()))
+  end
+  entry.overlayApplied = nil
 
   -- Unpin before anything moves: Hyprland leaves pinned windows behind
   -- when a workspace changes monitor (see the workspace move below).
@@ -699,19 +786,47 @@ function Harpoon.focus_or_list()
   return hl.dsp.no_op()
 end
 
+local function overlaid_slot(doc, address)
+  for i = 1, SLOT_COUNT do
+    local e = doc.slots[i]
+    if e ~= false and e.overlaid and e.address == address then return i end
+  end
+  return nil
+end
+
 -- SUPER+W: restore the focused window if it's an overlay, close it otherwise.
 function Harpoon.smart_close()
   local w = hl.get_active_window()
   if not w then return hl.dsp.no_op() end
 
-  local doc = read_state()
-  for i = 1, SLOT_COUNT do
-    local e = doc.slots[i]
-    if e ~= false and e.overlaid and e.address == w.address then
-      return Harpoon.restore(i)
-    end
-  end
+  local n = overlaid_slot(read_state(), w.address)
+  if n then return Harpoon.restore(n) end
   hl.dispatch(hl.dsp.window.close({ window = w }))
+  return hl.dsp.no_op()
+end
+
+-- SUPER+H, then Q/E/Z/C/S: move the focused overlay to an anchor of its
+-- monitor, keeping its size, and remember that anchor for later summons.
+-- Does nothing unless the focused window is an overlaid bookmark.
+function Harpoon.anchor(anchor)
+  local w = hl.get_active_window()
+  if not w or not ANCHORS[anchor] or not w.floating or (w.fullscreen or 0) ~= 0 then
+    return hl.dsp.no_op()
+  end
+  local doc = read_state()
+  local n = overlaid_slot(doc, w.address)
+  if not n then return hl.dsp.no_op() end
+
+  local entry = doc.slots[n]
+  local area = usable_area(w.monitor or hl.get_active_monitor())
+  capture_overlay(entry, w, area)
+  local margin = anchor == "center" and 0 or ANCHOR_MARGIN
+  local x, y = anchor_position(area, anchor, w.size.x, w.size.y, margin, margin)
+  x, y = clamp_into(area, x, y, w.size.x, w.size.y)
+  hl.dispatch(hl.dsp.window.move({ window = w, x = x, y = y }))
+  entry.overlay.anchor, entry.overlay.offsetX, entry.overlay.offsetY = anchor, margin, margin
+  entry.overlayApplied = describe_overlay(area, anchor, x, y, w.size.x, w.size.y)
+  write_state(doc)
   return hl.dsp.no_op()
 end
 

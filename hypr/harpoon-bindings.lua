@@ -35,6 +35,15 @@ hl.define_submap("harpoon", function()
 
   hl.bind("ESCAPE", harpoon_exit, { description = "Harpoon: cancel" })
 
+  for key, anchor in pairs({
+    Q = "top-left", E = "top-right", Z = "bottom-left", C = "bottom-right", S = "center",
+  }) do
+    hl.bind(key, function()
+      Harpoon.anchor(anchor)
+      harpoon_exit()
+    end, { description = "Harpoon: anchor overlay " .. anchor })
+  end
+
   -- keys 1-9 are slots 1-9, key 0 is slot 10
   for key = 0, 9 do
     local slot = key == 0 and 10 or key

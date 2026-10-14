@@ -5,11 +5,12 @@ Bookmark up to 10 Hyprland windows and jump to them from anywhere — an
 [Harpoon](https://github.com/ThePrimeagen/harpoon) for Neovim.
 
 A jump floats, centers and pins the window on top of your **current**
-workspace. Jump to the same slot again, or press `SUPER+W` on it, and it goes
-back into its reserved tile, with focus returning to the window you were
-working in. While a tiled window is away, a Harpoon logo holds its place;
-click the placeholder to bring the window back. The reservation also keeps
-an otherwise empty workspace alive.
+workspace. Move or resize it there, or snap it to a corner, and Harpoon
+remembers that size and placement for its next jump. Jump to the same slot
+again, or press `SUPER+W` on it, and it goes back into its reserved tile,
+with focus returning to the window you were working in. While a tiled window
+is away, a Harpoon logo holds its place; click the placeholder to bring the
+window back. The reservation also keeps an otherwise empty workspace alive.
 
 ![Harpoon demo: bookmarking and jumping between windows](assets/harpoon-demo.gif)
 
@@ -97,10 +98,17 @@ rm -rf -- "$HOME/.local/state/omarchy/harpoon"
 | `1`–`9`, `0` | Jump to slot 1–10; jumping to a slot already on screen restores it |
 | `Shift`+digit | Bookmark the focused window **at** that slot |
 | `Space` | Focus the on-screen bookmark (cycling if several); otherwise open the list |
+| `Q` `E` `Z` `C` | Snap the focused on-screen bookmark to the top-left, top-right, bottom-left or bottom-right corner |
+| `S` | Center the focused on-screen bookmark |
 | `Escape` | Cancel |
 
 `SUPER+W` restores an on-screen bookmark instead of closing it; any other
 window closes as usual.
+
+Snapping keeps the window's size. Drag or resize the window afterwards as
+usual; when it goes home, its size and its position relative to the chosen
+corner (or center) are saved for that bookmark. Smaller monitors shrink and
+clamp the window to fit without changing what's saved.
 
 ### The list (`SUPER+H`, `Space`)
 
